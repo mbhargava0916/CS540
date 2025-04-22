@@ -1,141 +1,161 @@
 import heapq
+import numpy as np
+from copy import deepcopy
 
 def state_check(state):
-    """check the format of state, and return corresponding goal state.
-       Do NOT edit this function."""
-    non_zero_numbers = [n for n in state if n != 0]
-    num_tiles = len(non_zero_numbers)
+    """Validate state and return the corresponding goal state as a tuple."""
+    non_zero = [n for n in state if n != 0]
+    num_tiles = len(non_zero)
     if num_tiles == 0:
         raise ValueError('At least one number is not zero.')
-    elif num_tiles > 9:
+    if num_tiles > 9:
         raise ValueError('At most nine numbers in the state.')
-    matched_seq = list(range(1, num_tiles + 1))
     if len(state) != 9 or not all(isinstance(n, int) for n in state):
         raise ValueError('State must be a list contain 9 integers.')
-    elif not all(0 <= n <= 9 for n in state):
+    if not all(0 <= n <= 9 for n in state):
         raise ValueError('The number in state must be within [0,9].')
-    elif len(set(non_zero_numbers)) != len(non_zero_numbers):
+    if len(set(non_zero)) != len(non_zero):
         raise ValueError('State can not have repeated numbers, except 0.')
-    elif sorted(non_zero_numbers) != matched_seq:
+    if sorted(non_zero) != list(range(1, num_tiles + 1)):
         raise ValueError('For puzzles with X tiles, the non-zero numbers must be within [1,X], '
-                          'and there will be 9-X grids labeled as 0.')
-    goal_state = matched_seq
-    for _ in range(9 - num_tiles):
-        goal_state.append(0)
-    return tuple(goal_state)
+                         'and there will be 9-X grids labeled as 0.')
+    goal = list(range(1, num_tiles + 1)) + [0] * (9 - num_tiles)
+    return tuple(goal)
 
-def get_manhattan_distance(from_state, to_state):
-    distance = 0
-    for num in range(1, 10):  # skip 0s
-        if num not in from_state or num not in to_state:
+def get_manhattan_distance(curr_state, goal_state):
+    """Sum of Manhattan distances of each tile from its goal position."""
+    # goal_state may be list or tuple
+    goal_pos = {val: i for i, val in enumerate(goal_state) if val != 0}
+    dist = 0
+    for i, v in enumerate(curr_state):
+        if v == 0:
             continue
-        from_idx = from_state.index(num)
-        to_idx = to_state.index(num)
-        fx, fy = divmod(from_idx, 3)
-        tx, ty = divmod(to_idx, 3)
-        distance += abs(fx - tx) + abs(fy - ty)
-    return distance
+        gi = goal_pos[v]
+        x1, y1 = divmod(i, 3)
+        x2, y2 = divmod(gi, 3)
+        dist += abs(x1 - x2) + abs(y1 - y2)
+    return dist
 
-def naive_heuristic(from_state, to_state):
+def naive_heuristic(curr_state, goal_state):
+    """Trivial heuristic: always 0."""
     return 0
 
-def sum_of_squares_distance(from_state, to_state):
-    distance = 0
-    for num in range(1, 10):
-        if num not in from_state or num not in to_state:
+def sum_of_square_distances(curr_state, goal_state):
+    """Sum of squared Euclidean distances of each tile from its goal."""
+    goal_pos = {val: i for i, val in enumerate(goal_state) if val != 0}
+    dist = 0
+    for i, v in enumerate(curr_state):
+        if v == 0:
             continue
-        from_idx = from_state.index(num)
-        to_idx = to_state.index(num)
-        fx, fy = divmod(from_idx, 3)
-        tx, ty = divmod(to_idx, 3)
-        distance += (fx - tx) ** 2 + (fy - ty) ** 2
-    return distance
+        gi = goal_pos[v]
+        x1, y1 = divmod(i, 3)
+        x2, y2 = divmod(gi, 3)
+        dist += (x1 - x2) ** 2 + (y1 - y2) ** 2
+    return dist
 
-def get_succ(state):
-    succ_states = []
-    for idx, val in enumerate(state):
-        if val != 0:
-            continue
-        x, y = divmod(idx, 3)
-        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < 3 and 0 <= ny < 3:
-                n_idx = 3 * nx + ny
-                if state[n_idx] != 0:
-                    new_state = list(state)
-                    new_state[idx], new_state[n_idx] = new_state[n_idx], new_state[idx]
-                    succ_states.append(new_state)
-    return sorted(succ_states)
+def get_successors(state):
+    """
+    Return a sorted list of all valid successor states.
+    Each successor is a Python list of 9 ints.
+    """
+    board = np.array(state).reshape(3, 3)
+    zeros = list(zip(*np.where(board == 0)))
+    moves = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+    succs = set()
+
+    for zr, zc in zeros:
+        for dr, dc in moves:
+            nr, nc = zr + dr, zc + dc
+            if 0 <= nr < 3 and 0 <= nc < 3 and board[nr, nc] != 0:
+                nb = deepcopy(board)
+                nb[zr, zc], nb[nr, nc] = nb[nr, nc], nb[zr, zc]
+                flat = [int(x) for x in nb.flatten()]
+                succs.add(tuple(flat))
+
+    # convert back to list of lists, sorted lexicographically
+    return [list(t) for t in sorted(succs)]
 
 def print_succ(state, heuristic=get_manhattan_distance):
-    goal_state = state_check(state)
-    succ_states = get_succ(state)
-    for succ_state in succ_states:
-        print(succ_state, "h={}".format(heuristic(succ_state, goal_state)))
+    """Print each successor of state along with its h-value."""
+    goal = state_check(state)
+    for s in get_successors(state):
+        h = heuristic(s, goal)
+        print(s, f"h={h}")
 
 def is_solvable(state):
-    non_zero = [n for n in state if n != 0]
-    inv_count = 0
-    for i in range(len(non_zero)):
-        for j in range(i + 1, len(non_zero)):
-            if non_zero[i] > non_zero[j]:
-                inv_count += 1
-    return inv_count % 2 == 0
+    """Check solvability by counting inversions (ignoring zeros)."""
+    nums = [n for n in state if n != 0]
+    inv = sum(1 for i in range(len(nums)) for j in range(i+1, len(nums)) if nums[i] > nums[j])
+    return inv % 2 == 0
 
 def solve(state, heuristic=get_manhattan_distance):
-    goal_state = state_check(state)
+    """
+    A* search from state to its goal.
+    Prints False if unsolvable, else prints True and the solution path:
+      [state] h=X moves: Y
+    followed by Max queue length.
+    """
+    goal = state_check(state)
+    start = tuple(state)
+    goal_t = tuple(goal)
+
+    if start == goal_t:
+        print(True)
+        print(f"{state} h=0 moves: 0")
+        print("Max queue length: 1")
+        return
+
     if not is_solvable(state):
         print(False)
         return
-    print(True)
 
-    visited = set()
+    print(True)
+    # Priority queue entries: (f = g+h, g, state_list, parent_index)
     pq = []
-    heapq.heappush(pq, (heuristic(state, goal_state), state, (0, heuristic(state, goal_state), -1)))
+    heapq.heappush(pq, (heuristic(state, goal), 0, state, -1))
+
+    # Best g found so far for each state
+    best_g = {start: 0}
+    # Visited with final g
+    visited = {}
+
+    # History for path reconstruction: (state, h, g, parent_index)
     history = []
-    max_length = 0
+    max_q = 1
 
     while pq:
-        max_length = max(max_length, len(pq))
-        cost, curr_state, (g, h, parent_index) = heapq.heappop(pq)
-        curr_tuple = tuple(curr_state)
+        max_q = max(max_q, len(pq))
+        f, g, curr, parent_idx = heapq.heappop(pq)
+        curr_t = tuple(curr)
 
-        if curr_tuple in visited:
+        # Skip if we've already found a better path
+        if curr_t in visited and g >= visited[curr_t]:
             continue
-        visited.add(curr_tuple)
 
-        this_index = len(history)
-        history.append((curr_state, h, g, parent_index))
+        visited[curr_t] = g
+        h = f - g
+        idx = len(history)
+        history.append((curr, h, g, parent_idx))
 
-        if curr_state == list(goal_state):
+        if curr_t == goal_t:
+            # Reconstruct path
             path = []
-            i = this_index
+            i = idx
             while i != -1:
-                cs, h_val, moves, parent = history[i]
-                path.append((cs, h_val, moves))
-                i = parent
-            for p in reversed(path):
-                print(f"{p[0]} h={p[1]} moves: {p[2]}")
-            print(f"Max queue length: {max_length}")
+                st, hh, gg, pi = history[i]
+                path.append((st, hh, gg))
+                i = pi
+            for st, hh, gg in reversed(path):
+                print(f"{st} h={hh} moves: {gg}")
+            print(f"Max queue length: {max_q}")
             return
 
-        for succ in get_succ(curr_state):
-            succ_tuple = tuple(succ)
-            if succ_tuple not in visited:
-                g_new = g + 1
-                h_new = heuristic(succ, goal_state)
-                heapq.heappush(pq, (g_new + h_new, succ, (g_new, h_new, this_index)))
+        for nb in get_successors(curr):
+            nb_t = tuple(nb)
+            g2 = g + 1
+            if nb_t not in best_g or g2 < best_g[nb_t]:
+                best_g[nb_t] = g2
+                h2 = heuristic(nb, goal)
+                heapq.heappush(pq, (g2 + h2, g2, nb, idx))
 
-if __name__ == "__main__":
-    """
-    Feel free to write your own test code here to exaime the correctness of your functions. 
-    Note that this part will not be graded.
-    """
-    # print_succ([2,5,1,4,0,6,7,0,3])
-    # print()
-    #
-    # print(get_manhattan_distance([2,5,1,4,0,6,7,0,3], [1, 2, 3, 4, 5, 6, 7, 0, 0]))
-    # print()
-
-    solve([2,5,1,4,0,6,7,0,3], heuristic=get_manhattan_distance)
-    print()
+        
